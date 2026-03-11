@@ -42,7 +42,7 @@ function SectionTitle({ icon, title }) {
   );
 }
 
-function StatCard({ label, value, accent }) {
+function StatCard({ label, value, accent = undefined, sub = undefined }: any) {
   return (
     <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 12, padding: "20px 24px", flex: 1, minWidth: 130 }}>
       <div style={{ color: "#475569", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
@@ -177,7 +177,7 @@ export default function CRM() {
     setForm(updated); setClients(clients.map(c => c.id === form.id ? updated : c)); setSelected(updated);
   };
 
-  const inp = (field, label, type = "text", opts = {}) => (
+  const inp = (field: any, label: any, type: any = "text", opts: any = {}) => (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       {label && <label style={{ color: "#475569", fontSize: 11, letterSpacing: 1, textTransform: "uppercase" }}>{label}</label>}
       {type === "select" ? (
@@ -196,7 +196,7 @@ export default function CRM() {
     </div>
   );
 
-  const navBtn = (id, icon, label) => (
+  const navBtn = (id: any, icon: any, label: any) => (
     <button onClick={() => setView(id)} style={{
       background: view === id ? "#1e293b" : "transparent",
       border: view === id ? "1px solid #334155" : "1px solid transparent",
@@ -444,7 +444,7 @@ export default function CRM() {
                     <Badge statut={s.id} />
                     <span style={{ color: "#475569", fontSize: 11 }}>{col.length}</span>
                   </div>
-                  {total > 0 && <div style={{ color: "#4ade80", fontSize: 11, fontFamily: "'DM Mono', monospace", marginBottom: 8 }}>{total.toLocaleString("fr-FR")} €/an</div>}
+                  {total > 0 && <div style={{ color: "#4ade80", fontSize: 11, fontFamily: "'DM Mono', monospace", marginBottom: 8 }}>{total.toLocaleString('fr-FR')} €/an</div>}
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {col.map(c => (
                       <div key={c.id} onClick={() => openClient(c)} style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, padding: "12px 14px", cursor: "pointer", transition: "border-color 0.15s" }}
@@ -453,7 +453,7 @@ export default function CRM() {
                         <div style={{ fontWeight: 600, fontSize: 13 }}>{c.prenom} {c.nom}</div>
                         <div style={{ color: "#64748b", fontSize: 11, marginTop: 3 }}>{c.typeLogement}{c.surfaceLogement ? ` · ${c.surfaceLogement} m²` : ""}</div>
                         <div style={{ color: "#475569", fontSize: 11, marginTop: 2 }}>📍 {c.villeLocation || "—"}</div>
-                        {c.valeur && <div style={{ color: "#4ade80", fontSize: 12, fontFamily: "'DM Mono', monospace", marginTop: 6 }}>{Number(c.valeur).toLocaleString("fr-FR")} €</div>}
+                        {c.valeur && <div style={{ color: "#4ade80", fontSize: 12, fontFamily: "'DM Mono', monospace", marginTop: 6 }}>{Number(c.valeur).toLocaleString('fr-FR')} €</div>}
                       </div>
                     ))}
                     {col.length === 0 && <div style={{ color: "#1e293b", fontSize: 12, textAlign: "center", padding: 16, border: "1px dashed #1e293b", borderRadius: 10 }}>Vide</div>}
@@ -508,12 +508,12 @@ export default function CRM() {
                   t, count: clients.filter(c => c.typeLogement === t).length,
                   color: `hsl(${200 + i * 28}, 70%, ${55 + i * 3}%)`
                 })).filter(x => x.count > 0);
-                const total = data.reduce((s, x) => s + x.count, 0);
+                const total: number = data.reduce((s: number, x: any) => s + x.count, 0);
                 if (total === 0) return <div style={{ color: "#334155", fontSize: 13 }}>Aucune donnée</div>;
                 const cx = 100, cy = 100, r = 70, ri = 42;
                 let angle = -Math.PI / 2;
                 const slices = data.map(d => {
-                  const a = (d.count / total) * 2 * Math.PI;
+                  const a: number = ((d.count as number) / (total as number)) * 2 * Math.PI;
                   const x1 = cx + r * Math.cos(angle), y1 = cy + r * Math.sin(angle);
                   const x2 = cx + r * Math.cos(angle + a), y2 = cy + r * Math.sin(angle + a);
                   const ix1 = cx + ri * Math.cos(angle), iy1 = cy + ri * Math.sin(angle);
@@ -556,7 +556,7 @@ export default function CRM() {
                     villes[c.villeLocation] = (villes[c.villeLocation] || 0) + (parseFloat(c.valeur) || 0);
                   }
                 });
-                const sorted = Object.entries(villes).sort((a, b) => b[1] - a[1]).slice(0, 7);
+                const sorted: [string, number][] = (Object.entries(villes) as [string, number][]).sort((a, b) => b[1] - a[1]).slice(0, 7);
                 if (sorted.length === 0) return <div style={{ color: "#334155", fontSize: 13 }}>Aucune donnée</div>;
                 const max = sorted[0][1];
                 const colors = ["#3b82f6","#8b5cf6","#06b6d4","#10b981","#f59e0b","#f87171","#a78bfa"];
@@ -571,7 +571,7 @@ export default function CRM() {
                         <g key={v}>
                           <text x={0} y={y + 18} fill="#94a3b8" fontSize="11" fontFamily="Inter">📍 {v}</text>
                           <rect x={0} y={y + 22} width={bw} height={8} rx={4} fill={colors[i % colors.length]} opacity={0.85} />
-                          <text x={bw + 8} y={y + 30} fill="#64748b" fontSize="10" fontFamily="DM Mono">{val.toLocaleString("fr-FR")} €</text>
+                          <text x={bw + 8} y={y + 30} fill="#64748b" fontSize="10" fontFamily="DM Mono">{val.toLocaleString('fr-FR')} €</text>
                         </g>
                       );
                     })}
@@ -608,7 +608,7 @@ export default function CRM() {
               <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid #1e293b" }}>
                 <div style={{ fontSize: 11, color: "#475569", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Valeur totale portefeuille</div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: "#4ade80", fontFamily: "'DM Mono', monospace" }}>
-                  {clients.reduce((s, c) => s + (parseFloat(c.valeur) || 0), 0).toLocaleString("fr-FR")} €
+                  {clients.reduce((s, c) => s + (parseFloat(c.valeur) || 0), 0).toLocaleString('fr-FR')} €
                 </div>
               </div>
             </div>
@@ -621,8 +621,8 @@ export default function CRM() {
             <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 14, padding: 24 }}>
               <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 20, color: "#f1f5f9" }}>🗺️ Biens par type × ville</div>
               {(() => {
-                const villes = [...new Set(clients.map(c => c.villeLocation).filter(Boolean))].sort();
-                const types = TYPES_LOGEMENT.filter(t => clients.some(c => c.typeLogement === t));
+                const villes: string[] = [...new Set(clients.map((c: any) => c.villeLocation).filter(Boolean))] as string[];
+                const types: string[] = TYPES_LOGEMENT.filter((t: string) => clients.some((c: any) => c.typeLogement === t));
                 if (villes.length === 0 || types.length === 0) return <div style={{ color: "#334155", fontSize: 13 }}>Aucune donnée</div>;
                 const maxVal = Math.max(...types.flatMap(t => villes.map(v => clients.filter(c => c.typeLogement === t && c.villeLocation === v).length)), 1);
                 return (
