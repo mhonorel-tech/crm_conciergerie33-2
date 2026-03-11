@@ -1,5 +1,24 @@
 import { useState, useMemo, useEffect } from "react";
 
+const SUPABASE_URL = "https://risxsxkznbsysiihlueq.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpc3hzeGt6bmJzeXNpaWhsdWVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyNDczODksImV4cCI6MjA4ODgyMzM4OX0.JI9dpwuFMGmSMUPeZcIJ8nDgPdFTK4i9BNvYuYl75KQ";
+
+async function sbFetch(path: string, method = "GET", body?: any) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    method,
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": "application/json",
+      "Prefer": method === "POST" ? "return=representation" : "return=minimal",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
 const STATUTS = [
   { id: "prospect", label: "Prospect", color: "#94a3b8", bg: "#1e293b" },
   { id: "contact", label: "Contacté", color: "#38bdf8", bg: "#0c2a3e" },
@@ -20,7 +39,7 @@ const emptyClient = {
   relances: [], dateCreation: "", dateModif: ""
 };
 
-function Badge({ statut }) {
+function Badge({ statut }: any) {
   const s = STATUTS.find(x => x.id === statut) || STATUTS[0];
   return (
     <span style={{
@@ -30,7 +49,7 @@ function Badge({ statut }) {
   );
 }
 
-function SectionTitle({ icon, title }) {
+function SectionTitle({ icon, title }: any) {
   return (
     <div style={{
       display: "flex", alignItems: "center", gap: 8,
@@ -42,16 +61,7 @@ function SectionTitle({ icon, title }) {
   );
 }
 
-function StatCard({ label, value, accent = undefined, sub = undefined }: any) {
-  return (
-    <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 12, padding: "20px 24px", flex: 1, minWidth: 130 }}>
-      <div style={{ color: "#475569", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
-      <div style={{ color: accent || "#f1f5f9", fontSize: 26, fontWeight: 800, fontFamily: "'DM Mono', monospace" }}>{value}</div>
-    </div>
-  );
-}
-
-function RelanceForm({ onAdd }) {
+function RelanceForm({ onAdd }: any) {
   const [date, setDate] = useState("");
   const [note, setNote] = useState("");
   return (
@@ -67,68 +77,124 @@ function RelanceForm({ onAdd }) {
 }
 
 export default function CRM() {
-  const defaultClients = [
-    {
-      id: 1, nom: "Dupont", prenom: "Marie", email: "marie.dupont@gmail.com", telephone: "06 11 22 33 44", entreprise: "",
-      statut: "negociation", valeur: "1800", notes: "Intéressée par la formule premium.",
-      adresseClient: "12 rue des Lilas", codePostalClient: "75011", villeClient: "Paris",
-      memeAdresse: false,
-      adresseLocation: "5 avenue de la Mer", codePostalLocation: "06400", villeLocation: "Cannes",
-      typeLogement: "T3", surfaceLogement: "65",
-      relances: [{ id: 1, date: "2026-03-15", note: "Suivi proposition tarifaire", fait: false }],
-      dateCreation: "2026-01-10", dateModif: "2026-03-10"
-    },
-    {
-      id: 2, nom: "Martin", prenom: "Lucas", email: "l.martin@outlook.fr", telephone: "07 55 66 77 88", entreprise: "",
-      statut: "gagne", valeur: "2400", notes: "Contrat signé. Prise en charge dès avril.",
-      adresseClient: "8 allée des Pins", codePostalClient: "33000", villeClient: "Bordeaux",
-      memeAdresse: false,
-      adresseLocation: "3 rue du Port", codePostalLocation: "17410", villeLocation: "Saint-Martin-de-Ré",
-      typeLogement: "T2", surfaceLogement: "42",
-      relances: [], dateCreation: "2026-01-20", dateModif: "2026-02-28"
-    },
-    {
-      id: 3, nom: "Bernard", prenom: "Claire", email: "c.bernard@free.fr", telephone: "06 99 88 77 66", entreprise: "",
-      statut: "prospect", valeur: "900", notes: "",
-      adresseClient: "22 rue Nationale", codePostalClient: "69001", villeClient: "Lyon",
-      memeAdresse: true,
-      adresseLocation: "22 rue Nationale", codePostalLocation: "69001", villeLocation: "Lyon",
-      typeLogement: "Studio", surfaceLogement: "28",
-      relances: [], dateCreation: "2026-03-01", dateModif: "2026-03-01"
-    },
-  ];
+  const [clients, setClients] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const [clients, setClients] = useState(() => {
-    try {
-      const saved = localStorage.getItem("orbit-crm-clients");
-      return saved ? JSON.parse(saved) : defaultClients;
-    } catch { return defaultClients; }
-  });
+  const now = () => new Date().toISOString().split("T")[0];
 
+  // Charger les clients depuis Supabase au démarrage
   useEffect(() => {
-    localStorage.setItem("orbit-crm-clients", JSON.stringify(clients));
-  }, [clients]);
+    loadClients();
+  }, []);
+
+  async function loadClients() {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await sbFetch("clients?select=*&order=datecreation.desc");
+      const mapped = (data || []).map((row: any) => ({
+        id: row.id,
+        nom: row.nom || "",
+        prenom: row.prenom || "",
+        email: row.email || "",
+        telephone: row.telephone || "",
+        entreprise: row.entreprise || "",
+        statut: row.statut || "prospect",
+        valeur: row.valeur || "",
+        notes: row.notes || "",
+        adresseClient: row.adresseclient || "",
+        codePostalClient: row.codepostalclient || "",
+        villeClient: row.villeclient || "",
+        memeAdresse: row.memeadresse || false,
+        adresseLocation: row.adresselocation || "",
+        codePostalLocation: row.codepostallocation || "",
+        villeLocation: row.villelocation || "",
+        typeLogement: row.typelogement || "Studio",
+        surfaceLogement: row.surfacelogement || "",
+        relances: row.relances ? JSON.parse(row.relances) : [],
+        dateCreation: row.datecreation || "",
+        dateModif: row.datemodif || "",
+      }));
+      setClients(mapped);
+    } catch (e: any) {
+      setError("Erreur de connexion à la base de données");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveClientDB(client: any) {
+    setSyncing(true);
+    const row = {
+      id: client.id,
+      nom: client.nom,
+      prenom: client.prenom,
+      email: client.email,
+      telephone: client.telephone,
+      entreprise: client.entreprise,
+      statut: client.statut,
+      valeur: client.valeur,
+      notes: client.notes,
+      adresseclient: client.adresseClient,
+      codepostalclient: client.codePostalClient,
+      villeclient: client.villeClient,
+      memeadresse: client.memeAdresse,
+      adresselocation: client.adresseLocation,
+      codepostallocation: client.codePostalLocation,
+      villelocation: client.villeLocation,
+      typelogement: client.typeLogement,
+      surfacelogement: client.surfaceLogement,
+      relances: JSON.stringify(client.relances),
+      datecreation: client.dateCreation,
+      datemodif: client.dateModif,
+    };
+    try {
+      const exists = clients.find(c => c.id === client.id && c.dateCreation);
+      if (exists) {
+        await sbFetch(`clients?id=eq.${client.id}`, "PATCH", row);
+      } else {
+        await sbFetch("clients", "POST", row);
+      }
+    } catch (e: any) {
+      setError("Erreur lors de la sauvegarde");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function deleteClientDB(id: any) {
+    setSyncing(true);
+    try {
+      await sbFetch(`clients?id=eq.${id}`, "DELETE");
+      setClients(clients.filter(c => c.id !== id));
+      setView("liste");
+    } catch (e: any) {
+      setError("Erreur lors de la suppression");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   const [view, setView] = useState("liste");
-  const [selected, setSelected] = useState(null);
-  const [form, setForm] = useState(emptyClient);
+  const [selected, setSelected] = useState<any>(null);
+  const [form, setForm] = useState<any>(emptyClient);
   const [editMode, setEditMode] = useState(false);
   const [search, setSearch] = useState("");
   const [filterStatut, setFilterStatut] = useState("tous");
   const [sortBy, setSortBy] = useState("dateCreation");
 
-  const now = () => new Date().toISOString().split("T")[0];
-
-  const handleMemeAdresse = (checked) => {
+  const handleMemeAdresse = (checked: boolean) => {
     if (checked) {
-      setForm(f => ({
+      setForm((f: any) => ({
         ...f, memeAdresse: true,
         adresseLocation: f.adresseClient,
         codePostalLocation: f.codePostalClient,
         villeLocation: f.villeClient,
       }));
     } else {
-      setForm(f => ({ ...f, memeAdresse: false }));
+      setForm((f: any) => ({ ...f, memeAdresse: false }));
     }
   };
 
@@ -137,44 +203,58 @@ export default function CRM() {
       .filter(c => filterStatut === "tous" || c.statut === filterStatut)
       .filter(c => {
         const q = search.toLowerCase();
-        return !q || [c.nom, c.prenom, c.email, c.villeLocation, c.typeLogement, c.villeClient].some(v => (v || "").toLowerCase().includes(q));
+        return !q || [c.nom, c.prenom, c.email, c.villeLocation, c.typeLogement, c.villeClient].some((v: any) => (v || "").toLowerCase().includes(q));
       })
       .sort((a, b) => {
         if (sortBy === "valeur") return (parseFloat(b.valeur) || 0) - (parseFloat(a.valeur) || 0);
         if (sortBy === "nom") return a.nom.localeCompare(b.nom);
-        return b.dateCreation.localeCompare(a.dateCreation);
+        return (b.dateCreation || "").localeCompare(a.dateCreation || "");
       });
   }, [clients, search, filterStatut, sortBy]);
 
   const stats = useMemo(() => {
-    const total = clients.length;
     const gagnes = clients.filter(c => c.statut === "gagne");
-    const ca = gagnes.reduce((s, c) => s + (parseFloat(c.valeur) || 0), 0);
-    const pipeline = clients.filter(c => ["contact", "negociation"].includes(c.statut)).reduce((s, c) => s + (parseFloat(c.valeur) || 0), 0);
-    const relancesAFaire = clients.flatMap(c => c.relances).filter(r => !r.fait && r.date >= now()).length;
-    const tauxConv = total > 0 ? Math.round((gagnes.length / total) * 100) : 0;
-    const byStat = STATUTS.map(s => ({ ...s, count: clients.filter(c => c.statut === s.id).length }));
+    const ca = gagnes.reduce((s: number, c: any) => s + (parseFloat(c.valeur) || 0), 0);
+    const pipeline = clients.filter(c => ["contact", "negociation"].includes(c.statut)).reduce((s: number, c: any) => s + (parseFloat(c.valeur) || 0), 0);
+    const relancesAFaire = clients.flatMap((c: any) => c.relances).filter((r: any) => !r.fait && r.date >= now()).length;
+    const tauxConv = clients.length > 0 ? Math.round((gagnes.length / clients.length) * 100) : 0;
     const byType = TYPES_LOGEMENT.map(t => ({ t, count: clients.filter(c => c.typeLogement === t).length })).filter(x => x.count > 0);
-    return { total, ca, pipeline, relancesAFaire, tauxConv, byStat, byType };
+    return { ca, pipeline, relancesAFaire, tauxConv, byType };
   }, [clients]);
 
-  const openNew = () => { setForm({ ...emptyClient, id: Date.now(), dateCreation: now(), dateModif: now() }); setEditMode(true); setSelected(null); setView("fiche"); };
-  const openClient = (c) => { setSelected(c); setForm({ ...c }); setEditMode(false); setView("fiche"); };
-  const saveClient = () => {
+  const openNew = () => {
+    setForm({ ...emptyClient, id: Date.now(), dateCreation: now(), dateModif: now() });
+    setEditMode(true); setSelected(null); setView("fiche");
+  };
+  const openClient = (c: any) => { setSelected(c); setForm({ ...c }); setEditMode(false); setView("fiche"); };
+
+  const saveClient = async () => {
     const updated = { ...form, dateModif: now() };
-    if (clients.find(c => c.id === form.id)) setClients(clients.map(c => c.id === form.id ? updated : c));
-    else setClients([...clients, updated]);
+    await saveClientDB(updated);
+    if (clients.find(c => c.id === form.id)) {
+      setClients(clients.map(c => c.id === form.id ? updated : c));
+    } else {
+      setClients([...clients, updated]);
+    }
     setSelected(updated); setEditMode(false);
   };
-  const deleteClient = (id) => { setClients(clients.filter(c => c.id !== id)); setView("liste"); };
-  const addRelance = (relance) => {
+
+  const addRelance = (relance: any) => {
     const updated = { ...form, relances: [...form.relances, relance], dateModif: now() };
     setForm(updated);
-    if (!editMode) { setClients(clients.map(c => c.id === form.id ? updated : c)); setSelected(updated); }
+    if (!editMode) {
+      setClients(clients.map(c => c.id === form.id ? updated : c));
+      setSelected(updated);
+      saveClientDB(updated);
+    }
   };
-  const toggleRelance = (rid) => {
-    const updated = { ...form, relances: form.relances.map(r => r.id === rid ? { ...r, fait: !r.fait } : r), dateModif: now() };
-    setForm(updated); setClients(clients.map(c => c.id === form.id ? updated : c)); setSelected(updated);
+
+  const toggleRelance = (rid: any) => {
+    const updated = { ...form, relances: form.relances.map((r: any) => r.id === rid ? { ...r, fait: !r.fait } : r), dateModif: now() };
+    setForm(updated);
+    setClients(clients.map(c => c.id === form.id ? updated : c));
+    setSelected(updated);
+    saveClientDB(updated);
   };
 
   const inp = (field: any, label: any, type: any = "text", opts: any = {}) => (
@@ -183,7 +263,7 @@ export default function CRM() {
       {type === "select" ? (
         <select value={form[field] || ""} onChange={e => setForm({ ...form, [field]: e.target.value })} disabled={!editMode}
           style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0", padding: "8px 12px", fontSize: 14 }}>
-          {opts.options?.map(o => <option key={o.value || o} value={o.value || o}>{o.label || o}</option>)}
+          {opts.options?.map((o: any) => <option key={o.value || o} value={o.value || o}>{o.label || o}</option>)}
         </select>
       ) : type === "textarea" ? (
         <textarea value={form[field] || ""} onChange={e => setForm({ ...form, [field]: e.target.value })} disabled={!editMode}
@@ -206,17 +286,28 @@ export default function CRM() {
     }}>{icon} {label}</button>
   );
 
+  if (loading) return (
+    <div style={{ minHeight: "100vh", background: "#020817", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
+      <div style={{ width: 48, height: 48, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>🔑</div>
+      <div style={{ color: "#475569", fontSize: 14 }}>Chargement Orbit CRM…</div>
+    </div>
+  );
+
   return (
     <div style={{ minHeight: "100vh", background: "#020817", color: "#e2e8f0", fontFamily: "'Inter', sans-serif" }}>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
       {/* Header */}
-      <div style={{ borderBottom: "1px solid #1e293b", padding: "16px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ borderBottom: "1px solid #1e293b", padding: "16px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 36, height: 36, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🔑</div>
           <div>
             <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: -0.5 }}>Orbit CRM <span style={{ color: "#475569", fontWeight: 400, fontSize: 12 }}>· Conciergerie</span></div>
-            <div style={{ color: "#475569", fontSize: 11 }}>{clients.length} client{clients.length > 1 ? "s" : ""}</div>
+            <div style={{ color: "#475569", fontSize: 11, display: "flex", alignItems: "center", gap: 6 }}>
+              {clients.length} client{clients.length > 1 ? "s" : ""}
+              {syncing && <span style={{ color: "#3b82f6", fontSize: 10 }}>● sync…</span>}
+              {error && <span style={{ color: "#f87171", fontSize: 10 }}>⚠ {error}</span>}
+            </div>
           </div>
         </div>
         <nav style={{ display: "flex", gap: 4 }}>
@@ -262,12 +353,12 @@ export default function CRM() {
                 {filteredClients.length === 0 && (
                   <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: "#334155" }}>Aucun client trouvé</td></tr>
                 )}
-                {filteredClients.map((c, i) => {
-                  const relancesEnCours = c.relances.filter(r => !r.fait).length;
+                {filteredClients.map((c: any, i: number) => {
+                  const relancesEnCours = c.relances.filter((r: any) => !r.fait).length;
                   return (
                     <tr key={c.id} onClick={() => openClient(c)} style={{ borderBottom: "1px solid #1e293b", cursor: "pointer", background: i % 2 === 0 ? "transparent" : "#0a0f1a" }}
-                      onMouseEnter={e => e.currentTarget.style.background = "#1e293b"}
-                      onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "transparent" : "#0a0f1a"}>
+                      onMouseEnter={e => (e.currentTarget.style.background = "#1e293b")}
+                      onMouseLeave={e => (e.currentTarget.style.background = i % 2 === 0 ? "transparent" : "#0a0f1a")}>
                       <td style={{ padding: "13px 16px" }}>
                         <div style={{ fontWeight: 600, fontSize: 14 }}>{c.prenom} {c.nom}</div>
                         <div style={{ color: "#64748b", fontSize: 12 }}>{c.email}</div>
@@ -305,12 +396,11 @@ export default function CRM() {
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
             <button onClick={() => setView("liste")} style={{ background: "#1e293b", border: "none", color: "#94a3b8", borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 13 }}>← Retour</button>
             <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>
-              {form.id && clients.find(c => c.id === form.id) ? `${form.prenom} ${form.nom}` : "Nouveau client"}
+              {form.id && clients.find((c: any) => c.id === form.id) ? `${form.prenom} ${form.nom}` : "Nouveau client"}
             </h2>
             {!editMode && selected && <Badge statut={selected.statut} />}
           </div>
 
-          {/* INFOS PERSONNELLES */}
           <SectionTitle icon="👤" title="Informations personnelles" />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
             {inp("prenom", "Prénom")}
@@ -327,7 +417,6 @@ export default function CRM() {
             </div>
           </div>
 
-          {/* ADRESSE PERSONNELLE */}
           <SectionTitle icon="🏠" title="Adresse personnelle" />
           <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr 2fr", gap: 14 }}>
             {inp("adresseClient", "Adresse")}
@@ -335,33 +424,25 @@ export default function CRM() {
             {inp("villeClient", "Ville")}
           </div>
 
-          {/* BIEN EN LOCATION */}
           <SectionTitle icon="🔑" title="Bien en location" />
-
-          {/* Checkbox même adresse */}
-          <div
-            onClick={() => editMode && handleMemeAdresse(!form.memeAdresse)}
+          <div onClick={() => editMode && handleMemeAdresse(!form.memeAdresse)}
             style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, cursor: editMode ? "pointer" : "default", userSelect: "none", width: "fit-content" }}>
             <div style={{
               width: 20, height: 20, borderRadius: 5,
               border: `2px solid ${form.memeAdresse ? "#3b82f6" : "#334155"}`,
               background: form.memeAdresse ? "#3b82f6" : "transparent",
-              display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0
             }}>
-              {form.memeAdresse && <span style={{ color: "#fff", fontSize: 12, fontWeight: 800, lineHeight: 1 }}>✓</span>}
+              {form.memeAdresse && <span style={{ color: "#fff", fontSize: 12, fontWeight: 800 }}>✓</span>}
             </div>
-            <span style={{ fontSize: 13, color: form.memeAdresse ? "#e2e8f0" : "#64748b" }}>
-              Même adresse que le propriétaire
-            </span>
+            <span style={{ fontSize: 13, color: form.memeAdresse ? "#e2e8f0" : "#64748b" }}>Même adresse que le propriétaire</span>
           </div>
-
           <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr 2fr", gap: 14 }}>
             {inp("adresseLocation", "Adresse du bien", "text", { disabled: form.memeAdresse })}
             {inp("codePostalLocation", "Code postal", "text", { disabled: form.memeAdresse })}
             {inp("villeLocation", "Ville", "text", { disabled: form.memeAdresse })}
           </div>
 
-          {/* LOGEMENT */}
           <SectionTitle icon="🏢" title="Caractéristiques du logement" />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -376,7 +457,7 @@ export default function CRM() {
               <div style={{ display: "flex" }}>
                 <input type="number" value={form.surfaceLogement || ""} onChange={e => setForm({ ...form, surfaceLogement: e.target.value })} disabled={!editMode}
                   style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: "8px 0 0 8px", color: "#e2e8f0", padding: "8px 12px", fontSize: 14, flex: 1, minWidth: 0 }} />
-                <span style={{ background: "#0f172a", border: "1px solid #334155", borderLeft: "none", borderRadius: "0 8px 8px 0", color: "#475569", padding: "8px 12px", fontSize: 13, whiteSpace: "nowrap" }}>m²</span>
+                <span style={{ background: "#0f172a", border: "1px solid #334155", borderLeft: "none", borderRadius: "0 8px 8px 0", color: "#475569", padding: "8px 12px", fontSize: 13 }}>m²</span>
               </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -389,7 +470,6 @@ export default function CRM() {
             </div>
           </div>
 
-          {/* NOTES */}
           <SectionTitle icon="📝" title="Notes" />
           {inp("notes", "", "textarea")}
 
@@ -402,7 +482,7 @@ export default function CRM() {
             ) : (
               <>
                 <button onClick={() => setEditMode(true)} style={{ background: "#1e293b", color: "#e2e8f0", border: "1px solid #334155", borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontWeight: 600, fontSize: 14 }}>✏️ Modifier</button>
-                <button onClick={() => deleteClient(form.id)} style={{ background: "#2d0b0b", color: "#f87171", border: "1px solid #f8717140", borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontWeight: 600, fontSize: 14 }}>🗑 Supprimer</button>
+                <button onClick={() => deleteClientDB(form.id)} style={{ background: "#2d0b0b", color: "#f87171", border: "1px solid #f8717140", borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontWeight: 600, fontSize: 14 }}>🗑 Supprimer</button>
               </>
             )}
           </div>
@@ -411,14 +491,14 @@ export default function CRM() {
           <div style={{ marginTop: 32, background: "#0f172a", border: "1px solid #1e293b", borderRadius: 14, padding: 20 }}>
             <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 16, color: "#f1f5f9" }}>📅 Relances</div>
             {form.relances.length === 0 && <div style={{ color: "#334155", fontSize: 13 }}>Aucune relance planifiée.</div>}
-            {form.relances.map(r => (
+            {form.relances.map((r: any) => (
               <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", borderRadius: 8, marginBottom: 6, background: r.fait ? "#0a1a12" : "#1a1205", border: `1px solid ${r.fait ? "#14532d" : "#44330040"}` }}>
                 <input type="checkbox" checked={r.fait} onChange={() => toggleRelance(r.id)} style={{ cursor: "pointer", width: 16, height: 16 }} />
                 <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#64748b", minWidth: 90 }}>{r.date}</span>
                 <span style={{ fontSize: 13, flex: 1, color: r.fait ? "#475569" : "#cbd5e1", textDecoration: r.fait ? "line-through" : "none" }}>{r.note}</span>
                 {!r.fait && r.date < now() && <span style={{ color: "#f87171", fontSize: 11, fontWeight: 600 }}>EN RETARD</span>}
                 {!r.fait && form.email && (
-                  <a href={`mailto:${form.email}?subject=${encodeURIComponent("Relance : " + r.note)}&body=${encodeURIComponent("Bonjour " + form.prenom + " " + form.nom + ",\n\nJe me permets de vous recontacter au sujet de : " + r.note + ".\n\nSeriez-vous disponible pour en discuter prochainement ?\n\nCordialement,\nVotre conciergerie")}`}
+                  <a href={`mailto:${form.email}?subject=${encodeURIComponent("Relance : " + r.note)}&body=${encodeURIComponent("Bonjour " + form.prenom + " " + form.nom + ",\n\nJe me permets de vous recontacter au sujet de : " + r.note + ".\n\nCordialement,\nVotre conciergerie")}`}
                     style={{ background: "#0c2a3e", color: "#38bdf8", border: "1px solid #38bdf840", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>
                     📧 Email
                   </a>
@@ -436,8 +516,8 @@ export default function CRM() {
           <h2 style={{ fontWeight: 800, fontSize: 20, marginBottom: 20 }}>Pipeline de vente</h2>
           <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 16 }}>
             {STATUTS.map(s => {
-              const col = clients.filter(c => c.statut === s.id);
-              const total = col.reduce((sum, c) => sum + (parseFloat(c.valeur) || 0), 0);
+              const col = clients.filter((c: any) => c.statut === s.id);
+              const total = col.reduce((sum: number, c: any) => sum + (parseFloat(c.valeur) || 0), 0);
               return (
                 <div key={s.id} style={{ minWidth: 220, flex: "0 0 220px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -446,10 +526,10 @@ export default function CRM() {
                   </div>
                   {total > 0 && <div style={{ color: "#4ade80", fontSize: 11, fontFamily: "'DM Mono', monospace", marginBottom: 8 }}>{total.toLocaleString('fr-FR')} €/an</div>}
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {col.map(c => (
-                      <div key={c.id} onClick={() => openClient(c)} style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, padding: "12px 14px", cursor: "pointer", transition: "border-color 0.15s" }}
-                        onMouseEnter={e => e.currentTarget.style.borderColor = s.color}
-                        onMouseLeave={e => e.currentTarget.style.borderColor = "#1e293b"}>
+                    {col.map((c: any) => (
+                      <div key={c.id} onClick={() => openClient(c)} style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, padding: "12px 14px", cursor: "pointer" }}
+                        onMouseEnter={e => (e.currentTarget.style.borderColor = s.color)}
+                        onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e293b")}>
                         <div style={{ fontWeight: 600, fontSize: 13 }}>{c.prenom} {c.nom}</div>
                         <div style={{ color: "#64748b", fontSize: 11, marginTop: 3 }}>{c.typeLogement}{c.surfaceLogement ? ` · ${c.surfaceLogement} m²` : ""}</div>
                         <div style={{ color: "#475569", fontSize: 11, marginTop: 2 }}>📍 {c.villeLocation || "—"}</div>
@@ -465,12 +545,12 @@ export default function CRM() {
         </div>
       )}
 
-      {/* DASHBOARD */}
+      {/* STATS */}
       {view === "stats" && (
         <div style={{ padding: "24px 32px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
             <div>
-              <h2 style={{ fontWeight: 800, fontSize: 22, margin: 0, letterSpacing: -0.5 }}>Dashboard</h2>
+              <h2 style={{ fontWeight: 800, fontSize: 22, margin: 0 }}>Dashboard</h2>
               <div style={{ color: "#475569", fontSize: 12, marginTop: 3 }}>Vue d'ensemble de l'activité conciergerie</div>
             </div>
             <div style={{ color: "#334155", fontSize: 12, fontFamily: "'DM Mono', monospace" }}>
@@ -478,10 +558,9 @@ export default function CRM() {
             </div>
           </div>
 
-          {/* KPI ROW */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 24 }}>
             {[
-              { label: "Biens gérés", value: clients.filter(c => c.statut === "gagne").length, accent: "#4ade80", icon: "🔑" },
+              { label: "Biens gérés", value: clients.filter((c: any) => c.statut === "gagne").length, accent: "#4ade80", icon: "🔑" },
               { label: "CA annuel", value: stats.ca.toLocaleString("fr-FR") + " €", accent: "#4ade80", icon: "💶" },
               { label: "Pipeline", value: stats.pipeline.toLocaleString("fr-FR") + " €", accent: "#38bdf8", icon: "📈" },
               { label: "Taux conversion", value: stats.tauxConv + "%", accent: "#f59e0b", icon: "🎯" },
@@ -497,23 +576,20 @@ export default function CRM() {
             ))}
           </div>
 
-          {/* ROW 1 : Donut type logement + Barres CA par ville + Funnel statuts */}
           <div style={{ display: "grid", gridTemplateColumns: "280px 1fr 1fr", gap: 16, marginBottom: 16 }}>
-
-            {/* DONUT - Types de logements */}
             <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 14, padding: 24 }}>
               <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 20, color: "#f1f5f9" }}>🏢 Types de biens</div>
               {(() => {
                 const data = TYPES_LOGEMENT.map((t, i) => ({
-                  t, count: clients.filter(c => c.typeLogement === t).length,
+                  t, count: clients.filter((c: any) => c.typeLogement === t).length,
                   color: `hsl(${200 + i * 28}, 70%, ${55 + i * 3}%)`
                 })).filter(x => x.count > 0);
-                const total: number = data.reduce((s: number, x: any) => s + x.count, 0);
+                const total = data.reduce((s, x) => s + x.count, 0);
                 if (total === 0) return <div style={{ color: "#334155", fontSize: 13 }}>Aucune donnée</div>;
                 const cx = 100, cy = 100, r = 70, ri = 42;
                 let angle = -Math.PI / 2;
                 const slices = data.map(d => {
-                  const a: number = ((d.count as number) / (total as number)) * 2 * Math.PI;
+                  const a = (d.count / total) * 2 * Math.PI;
                   const x1 = cx + r * Math.cos(angle), y1 = cy + r * Math.sin(angle);
                   const x2 = cx + r * Math.cos(angle + a), y2 = cy + r * Math.sin(angle + a);
                   const ix1 = cx + ri * Math.cos(angle), iy1 = cy + ri * Math.sin(angle);
@@ -546,20 +622,17 @@ export default function CRM() {
               })()}
             </div>
 
-            {/* BARRES - CA par ville */}
             <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 14, padding: 24 }}>
               <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 20, color: "#f1f5f9" }}>💶 Revenus par ville de location</div>
               {(() => {
-                const villes = {};
-                clients.forEach(c => {
-                  if (c.villeLocation && c.valeur) {
-                    villes[c.villeLocation] = (villes[c.villeLocation] || 0) + (parseFloat(c.valeur) || 0);
-                  }
+                const villes: Record<string, number> = {};
+                clients.forEach((c: any) => {
+                  if (c.villeLocation && c.valeur) villes[c.villeLocation] = (villes[c.villeLocation] || 0) + (parseFloat(c.valeur) || 0);
                 });
-                const sorted: [string, number][] = (Object.entries(villes) as [string, number][]).sort((a, b) => b[1] - a[1]).slice(0, 7);
+                const sorted = Object.entries(villes).sort((a, b) => b[1] - a[1]).slice(0, 7) as [string, number][];
                 if (sorted.length === 0) return <div style={{ color: "#334155", fontSize: 13 }}>Aucune donnée</div>;
                 const max = sorted[0][1];
-                const colors = ["#3b82f6","#8b5cf6","#06b6d4","#10b981","#f59e0b","#f87171","#a78bfa"];
+                const colors = ["#3b82f6", "#8b5cf6", "#06b6d4", "#10b981", "#f59e0b", "#f87171", "#a78bfa"];
                 const barH = 28, gap = 10, w = 280;
                 const svgH = sorted.length * (barH + gap);
                 return (
@@ -580,15 +653,14 @@ export default function CRM() {
               })()}
             </div>
 
-            {/* FUNNEL - Statuts pipeline */}
             <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 14, padding: 24 }}>
               <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 20, color: "#f1f5f9" }}>🎯 Entonnoir de conversion</div>
               {(() => {
-                const maxCount = Math.max(...STATUTS.map(s => clients.filter(c => c.statut === s.id).length), 1);
-                return STATUTS.map((s, i) => {
-                  const count = clients.filter(c => c.statut === s.id).length;
+                const maxCount = Math.max(...STATUTS.map(s => clients.filter((c: any) => c.statut === s.id).length), 1);
+                return STATUTS.map(s => {
+                  const count = clients.filter((c: any) => c.statut === s.id).length;
                   const pct = clients.length > 0 ? Math.round(count / clients.length * 100) : 0;
-                  const w = maxCount > 0 ? (count / maxCount) * 100 : 0;
+                  const w = (count / maxCount) * 100;
                   return (
                     <div key={s.id} style={{ marginBottom: 12 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
@@ -599,7 +671,7 @@ export default function CRM() {
                         </div>
                       </div>
                       <div style={{ background: "#1e293b", borderRadius: 999, height: 10, overflow: "hidden" }}>
-                        <div style={{ height: "100%", borderRadius: 999, background: s.color, width: `${w}%`, transition: "width 0.6s ease", opacity: 0.85 }} />
+                        <div style={{ height: "100%", borderRadius: 999, background: s.color, width: `${w}%`, opacity: 0.85 }} />
                       </div>
                     </div>
                   );
@@ -608,29 +680,26 @@ export default function CRM() {
               <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid #1e293b" }}>
                 <div style={{ fontSize: 11, color: "#475569", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Valeur totale portefeuille</div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: "#4ade80", fontFamily: "'DM Mono', monospace" }}>
-                  {clients.reduce((s, c) => s + (parseFloat(c.valeur) || 0), 0).toLocaleString('fr-FR')} €
+                  {clients.reduce((s: number, c: any) => s + (parseFloat(c.valeur) || 0), 0).toLocaleString('fr-FR')} €
                 </div>
               </div>
             </div>
           </div>
 
-          {/* ROW 2 : Type logement x Ville (heatmap) + Surface moyenne + Relances */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 220px", gap: 16, marginBottom: 16 }}>
-
-            {/* HEATMAP type x ville */}
             <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 14, padding: 24 }}>
               <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 20, color: "#f1f5f9" }}>🗺️ Biens par type × ville</div>
               {(() => {
-                const villes: string[] = [...new Set(clients.map((c: any) => c.villeLocation).filter(Boolean))] as string[];
-                const types: string[] = TYPES_LOGEMENT.filter((t: string) => clients.some((c: any) => c.typeLogement === t));
+                const villes = [...new Set(clients.map((c: any) => c.villeLocation).filter(Boolean))] as string[];
+                const types = TYPES_LOGEMENT.filter(t => clients.some((c: any) => c.typeLogement === t));
                 if (villes.length === 0 || types.length === 0) return <div style={{ color: "#334155", fontSize: 13 }}>Aucune donnée</div>;
-                const maxVal = Math.max(...types.flatMap(t => villes.map(v => clients.filter(c => c.typeLogement === t && c.villeLocation === v).length)), 1);
+                const maxVal = Math.max(...types.flatMap(t => villes.map(v => clients.filter((c: any) => c.typeLogement === t && c.villeLocation === v).length)), 1);
                 return (
                   <div style={{ overflowX: "auto" }}>
-                    <table style={{ borderCollapse: "separate", borderSpacing: 4, width: "100%" }}>
+                    <table style={{ borderCollapse: "separate", borderSpacing: 4 }}>
                       <thead>
                         <tr>
-                          <th style={{ padding: "4px 8px", color: "#334155", fontSize: 11, textAlign: "left" }}></th>
+                          <th style={{ padding: "4px 8px", color: "#334155", fontSize: 11 }}></th>
                           {villes.map(v => <th key={v} style={{ padding: "4px 8px", color: "#64748b", fontSize: 11, fontWeight: 600, textAlign: "center", whiteSpace: "nowrap" }}>📍 {v}</th>)}
                         </tr>
                       </thead>
@@ -639,7 +708,7 @@ export default function CRM() {
                           <tr key={t}>
                             <td style={{ padding: "4px 8px", color: "#94a3b8", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }}>{t}</td>
                             {villes.map(v => {
-                              const n = clients.filter(c => c.typeLogement === t && c.villeLocation === v).length;
+                              const n = clients.filter((c: any) => c.typeLogement === t && c.villeLocation === v).length;
                               const intensity = n / maxVal;
                               return (
                                 <td key={v} style={{ textAlign: "center", padding: 3 }}>
@@ -664,17 +733,16 @@ export default function CRM() {
               })()}
             </div>
 
-            {/* Surface moyenne par type */}
             <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 14, padding: 24 }}>
               <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 20, color: "#f1f5f9" }}>📐 Surface moy. par type</div>
               {(() => {
                 const data = TYPES_LOGEMENT.map((t, i) => {
-                  const group = clients.filter(c => c.typeLogement === t && c.surfaceLogement);
-                  const avg = group.length > 0 ? Math.round(group.reduce((s, c) => s + parseFloat(c.surfaceLogement), 0) / group.length) : null;
-                  return { t, avg, count: group.length, color: `hsl(${200 + i * 28}, 70%, 55%)` };
+                  const group = clients.filter((c: any) => c.typeLogement === t && c.surfaceLogement);
+                  const avg = group.length > 0 ? Math.round(group.reduce((s: number, c: any) => s + parseFloat(c.surfaceLogement), 0) / group.length) : null;
+                  return { t, avg, color: `hsl(${200 + i * 28}, 70%, 55%)` };
                 }).filter(x => x.avg !== null);
                 if (data.length === 0) return <div style={{ color: "#334155", fontSize: 13 }}>Aucune donnée</div>;
-                const max = Math.max(...data.map(x => x.avg));
+                const max = Math.max(...data.map(x => x.avg as number));
                 return data.map(x => (
                   <div key={x.t} style={{ marginBottom: 14 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
@@ -682,7 +750,7 @@ export default function CRM() {
                       <span style={{ fontSize: 12, color: x.color, fontFamily: "'DM Mono', monospace", fontWeight: 700 }}>{x.avg} m²</span>
                     </div>
                     <div style={{ background: "#1e293b", borderRadius: 999, height: 6, overflow: "hidden" }}>
-                      <div style={{ height: "100%", borderRadius: 999, background: x.color, width: `${(x.avg / max) * 100}%`, transition: "width 0.5s ease" }} />
+                      <div style={{ height: "100%", borderRadius: 999, background: x.color, width: `${((x.avg as number) / max) * 100}%` }} />
                     </div>
                   </div>
                 ));
@@ -690,20 +758,19 @@ export default function CRM() {
             </div>
           </div>
 
-          {/* ROW 3 : Relances timeline */}
           <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 14, padding: 24 }}>
             <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 16, color: "#f1f5f9" }}>📅 Relances à venir</div>
             {(() => {
-              const all = clients.flatMap(c => c.relances.filter(r => !r.fait).map(r => ({ ...r, client: c })));
+              const all = clients.flatMap((c: any) => c.relances.filter((r: any) => !r.fait).map((r: any) => ({ ...r, client: c })));
               if (all.length === 0) return <div style={{ color: "#334155", fontSize: 13 }}>Aucune relance en attente 🎉</div>;
               return (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
-                  {all.sort((a, b) => a.date.localeCompare(b.date)).map(r => {
+                  {all.sort((a: any, b: any) => a.date.localeCompare(b.date)).map((r: any) => {
                     const retard = r.date < now();
                     return (
                       <div key={r.id} style={{ background: retard ? "#1a0a0a" : "#0f1a0a", border: `1px solid ${retard ? "#7f1d1d" : "#14532d"}`, borderRadius: 10, padding: "12px 16px", cursor: "pointer" }}
                         onClick={() => openClient(r.client)}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                           <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: retard ? "#f87171" : "#4ade80", fontWeight: 700 }}>
                             {retard ? "⚠ " : "→ "}{r.date}
                           </span>
